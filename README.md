@@ -54,6 +54,6 @@ While robust, this framework has several limitations that warrant consideration:
 - **Data Gaps:** Despite integrating multiple sources, certain spatial and temporal data gaps persist, which may affect the generalizability of the predictions to unobserved areas or periods.
 
 ## License & Citation
-This project is licensed under the [Specify License, e.g., MIT License].
-Please cite this work as:
-[Your Citation Here, e.g., "BC Blue Carbon MRV Framework. Uncharted Data Challenge, 2026."]
+This project is licensed under the MIT License.
+
+Jason Poitras, "BC Blue Carbon MRV Framework. Uncharted Data Challenge, 2026."
