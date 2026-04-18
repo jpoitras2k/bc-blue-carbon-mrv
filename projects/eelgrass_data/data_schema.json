@@ -1,0 +1,22 @@
+{
+    "location_name": {
+        "type": "string",
+        "description": "Human-readable name of the location"
+    },
+    "coordinates_lat": {
+        "type": "number",
+        "description": "Latitude of the location (WGS84)"
+    },
+    "coordinates_long": {
+        "type": "number",
+        "description": "Longitude of the location (WGS84)"
+    },
+    "eelgrass_density_percentage": {
+        "type": "number",
+        "description": "Eelgrass density as a percentage (0-100)"
+    },
+    "source_url": {
+        "type": "string",
+        "description": "URL to the data source or publication"
+    }
+}
