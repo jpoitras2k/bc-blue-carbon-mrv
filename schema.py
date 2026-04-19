@@ -1,3 +1,6 @@
+# The schema defines the strict data types, required fields, and acceptable values 
+# for our blue carbon dataset. This ensures consistency when merging data from 
+# different sources (like CRD, Janousek, Hakai) into a single analytical pipeline.
 schema = {
     'site_id': {'type': str, 'required': True, 'format': r'[A-Z]{2}-[A-Z]{3}-\d{3}'},
     'site_name': {'type': str, 'required': True},
@@ -16,6 +19,9 @@ schema = {
 }
 
 # Data Gap Flags for notes column
+# We use these flags in the 'notes' column to explicitly mark rows that need 
+# special handling down the line, such as 'CARBON_GAP:' triggering our ML model 
+# to impute missing carbon density values.
 DATA_GAP_FLAGS = {
     'is_carbon_gap': 'CARBON_GAP:',
     'is_coord_approx': 'COORD_APPROX:',

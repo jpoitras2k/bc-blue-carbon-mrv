@@ -1,4 +1,4 @@
-# BC Blue Carbon MRV Framework
+# Unlocking Blue Carbon: A Unified MRV Dataset for Coastal Ecosystems Using Spatial Intelligence
 ![Kaggle](https://img.shields.io/badge/Kaggle-Notebook-blue)
 
 This repository contains the BC Blue Carbon Measurement, Reporting, and Verification (MRV) Framework developed for the Uncharted Data Challenge. The framework aims to predict blue carbon sequestration rates, providing a crucial tool for assessing and verifying carbon credit initiatives in coastal ecosystems.
@@ -12,15 +12,35 @@ All datasets are preprocessed and aligned to ensure compatibility within the MRV
 
 ## Repository Structure
 The repository is organized as follows:
-- `pipeline.py`: Main data processing and model training pipeline.
-- `kaggle_notebook.py`: Jupyter notebook for demonstration and submission on Kaggle.
+- `pipeline.py`: Main data processing, feature engineering, and vector-scaling pipeline.
+- `kaggle_notebook.ipynb`: Core narrative notebook for demonstration and direct submission on Kaggle.
 - `unified_bc_blue_carbon_filled.csv`: The primary dataset used for analysis, with missing values imputed.
 - `schema.py`: Defines the data schema for blue carbon variables.
 - `DATA_GAP_ANALYSIS.md`: Documentation on identified data gaps and mitigation strategies.
 - `BC_BLUE_CARBON_SCHEMA.md`: Detailed schema definition for the blue carbon dataset.
 
 ## Key Results
-Our predictive model for blue carbon sequestration achieved strong performance metrics during Phase 2, with an R² value of **0.957** and a Root Mean Squared Error (RMSE) of **113.4**. This demonstrates a high degree of accuracy in estimating carbon stocks.
+During the latest testing phase utilizing rigorous Leave-One-Out Cross-Validation (LOOCV), the core predictive pipeline achieved the following metrics across an expanded algorithm suite. Random Forest and XGBoost generated the strongest predictive capabilities for estimating blue carbon sequestration stocks in unmeasured geographies:
+
+| Model | RMSE | R² |
+| :--- | :--- | :--- |
+| **Random Forest** | 138.91 | 0.836 |
+| **XGBoost** | 145.29 | 0.820 |
+| **Voting Ensemble** | 203.10 | 0.649 |
+| **K-Nearest Neighbors** | 273.38 | 0.365 |
+| **Support Vector Regression** | 346.62 | -0.020 |
+
+<p align="center">
+  <img src="model_scatter.png" width="400" />
+  <img src="model_residuals.png" width="400" />
+</p>
+
+### Spatial Dataset Coverage
+The final generated `unified_bc_blue_carbon_filled.csv` provides spatially interpolated target metrics across BC mapping zones:
+<p align="center">
+  <img src="map_coverage.png" width="800" />
+</p>
+
 Phase 3 involved an exploratory grain-size experiment, which, while not yielding significant predictive power, provided valuable insights into environmental factors influencing blue carbon dynamics.
 
 ## Quickstart

@@ -1,0 +1,26 @@
+study,region,map_inset,site,core,cover,oc_accumulation_rate,sed_accretion_rate,accretion_rate_error
+Prentice et al 2019,British Columbia,Central Coast BC,Choked Passage,1,Vegetated,4.63,0.49,NA
+Prentice et al 2019,British Columbia,Central Coast BC,McMullins North,1,Vegetated,22.28,0.34,NA
+Prentice et al 2019,British Columbia,Central Coast BC,Pruth Bay,1,Vegetated,29.42,NA,NA
+Prentice et al 2019,British Columbia,Central Coast BC,Triquet Bay,1,Vegetated,33.05,0.32,NA
+Short et al 2017,British Columbia,Central Coast BC,Pruth Bay,2,Vegetated,6.47,0.13,NA
+Short et al 2017,Oregon,South Slough,Valino Island (25.1),1,Vegetated,16.50,0.14,NA
+Short et al 2017,Oregon,South Slough,Hidden Channel,1,Vegetated,29.60,0.2,NA
+Poppe and Rybczyk 2018,Washington,Central Salish Sea,Padilla Bay,1,Vegetated,7.51,0.18,0.07
+Poppe and Rybczyk 2018,Washington,Central Salish Sea,Padilla Bay,2,Vegetated,13.38,0.2,0.07
+Poppe and Rybczyk 2018,Washington,Central Salish Sea,Padilla Bay,3,Vegetated,5.03,0.08,0
+Poppe and Rybczyk 2018,Washington,Central Salish Sea,Padilla Bay,4,Vegetated,11.88,0.24,0.04
+Poppe and Rybczyk 2018,Washington,Central Salish Sea,Padilla Bay,5,Vegetated,8.52,0.21,0.15
+Poppe and Rybczyk 2018,Washington,Central Salish Sea,Padilla Bay,6,Vegetated,21.72,0.49,0.13
+Poppe and Rybczyk 2018,Washington,Central Salish Sea,Padilla Bay,1,Unvegetated,13.57,0.18,0.08
+Lutz 2018,Washington,Central Salish Sea,Samish Bay,1,Vegetated,13.90,0.26,NA
+Lutz 2018,Washington,Central Salish Sea,Padilla Bay,1,Vegetated,29.45,0.57,NA
+Lutz 2018,Washington,Central Salish Sea,Padilla Bay,2,Vegetated,40.14,0.84,NA
+Lutz 2018,Washington,Central Salish Sea,Padilla Bay,3,Vegetated,40.95,0.7,NA
+Lutz 2018,Washington,Central Salish Sea,Skagit Bay,1,Vegetated,44.44,0.64,NA
+Lutz 2018,Washington,Central Salish Sea,Skagit Bay,2,Unvegetated,45.27,0.93,NA
+Lutz 2018,Washington,Central Salish Sea,Skagit Bay,3,Vegetated,93.04,0.95,NA
+Spooner 2015,British Columbia,Vancouver Island BC,K'omoks Estuary,1,Vegetated,28.00,0.35,NA
+Spooner 2015,British Columbia,Vancouver Island BC,K'omoks Estuary,1,Unvegetated,17.00,0.19,NA
+Spooner 2015,British Columbia,Vancouver Island BC,K'omoks Estuary,1,Vegetated,24.00,0.2,NA
+Spooner 2015,British Columbia,Vancouver Island BC,K'omoks Estuary,1,Unvegetated,4.30,0.46,NA

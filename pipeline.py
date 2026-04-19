@@ -1,14 +1,38 @@
+import os
 import pandas as pd
 import numpy as np
 import requests
 import json
 from shapely.geometry import shape, Point, Polygon
 from shapely.ops import nearest_points
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, VotingRegressor
 from sklearn.model_selection import LeaveOneOut, cross_val_predict
 from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+try:
+    from xgboost import XGBRegressor
+except ImportError:
+    XGBRegressor = None
 
-def load_and_validate_data(file_path="data/unified_bc_blue_carbon.csv", df=None):
+def haversine_distance(lat1, lon1, lat2, lon2):
+    R = 6371  # Radius of Earth in kilometers
+    lat1_rad = np.radians(lat1)
+    lon1_rad = np.radians(lon1)
+    lat2_rad = np.radians(lat2)
+    lon2_rad = np.radians(lon2)
+
+    dlon = lon2_rad - lon1_rad
+    dlat = lat2_rad - lat1_rad
+
+    a = np.sin(dlat / 2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon / 2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return R * c
+
+def load_and_validate_data(file_path="unified_bc_blue_carbon.csv", df=None):
     """
     Loads the blue carbon data, applies schema, and performs basic validation.
     """
@@ -33,7 +57,9 @@ def load_and_validate_data(file_path="data/unified_bc_blue_carbon.csv", df=None)
         'notes': str
     }
 
-    # Convert object columns that can be null to 'str' and then fillna to avoid issues with pd.NA
+    # Why? Standard pandas integer columns historically drop to floats when they encounter NaN.
+    # By carefully forcing 'Int64' (capital I), we allow integer columns (like survey_year and depth) 
+    # to store null values without corrupting the downstream scikit-learn models.
     for col, dtype in schema.items():
         if dtype == str:
             df[col] = df[col].astype(str).replace('nan', np.nan) # Convert 'nan' string to actual NaN
@@ -89,98 +115,116 @@ def load_and_validate_data(file_path="data/unified_bc_blue_carbon.csv", df=None)
 
     return df
 
-def fetch_geojson_data(url):
+def fetch_geojson_data(url, local_cache_path=None):
     """
-    Fetches GeoJSON data from a given URL.
+    Fetches GeoJSON data from a given URL, with optional local caching.
     """
+    if local_cache_path and os.path.exists(local_cache_path):
+        print(f"Loading cached data from: {local_cache_path}")
+        with open(local_cache_path, 'r') as f:
+            return json.load(f)
+
+    print(f"Fetching data from URL: {url}")
     response = requests.get(url)
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+
+    if local_cache_path:
+        os.makedirs(os.path.dirname(local_cache_path), exist_ok=True)
+        with open(local_cache_path, 'w') as f:
+            json.dump(data, f)
+        print(f"Saved data to cache: {local_cache_path}")
+
+    return data
 
 def process_crd_eelgrass_data(eelgrass_geojson, sediment_geojson, existing_df):
     """
     Processes CRD eelgrass GeoJSON data, extracts relevant features,
     and performs spatial join with sediment data.
     """
+    import geopandas as gpd
+    
+    # Load into GeoDataFrames
+    eelgrass_gdf = gpd.GeoDataFrame.from_features(eelgrass_geojson['features'], crs="EPSG:4326")
+    sediment_gdf = gpd.GeoDataFrame.from_features(sediment_geojson['features'], crs="EPSG:4326")
+    # Project to EPSG:3857 (Web Mercator) to calculate accurate geometric features and centroids without warnings
+    eelgrass_proj = eelgrass_gdf.to_crs("EPSG:3857")
+    sediment_proj = sediment_gdf.to_crs("EPSG:3857")
+    
+    # Calculate centroids on the flat projected plane
+    eelgrass_proj['centroid'] = eelgrass_proj.geometry.centroid
+    
+    # Extract pristine latitudes/longitudes by casting just the centroids back to geographic EPSG:4326
+    centroids_4326 = gpd.GeoSeries(eelgrass_proj['centroid'], crs="EPSG:3857").to_crs("EPSG:4326")
+    eelgrass_proj['latitude'] = centroids_4326.y
+    eelgrass_proj['longitude'] = centroids_4326.x
+    
+    if 'Shape.STArea()' in eelgrass_proj.columns:
+        eelgrass_proj['area_ha'] = eelgrass_proj['Shape.STArea()'] / 10000.0
+    else:
+        eelgrass_proj['area_ha'] = eelgrass_proj.area / 10000.0
+
+    # Ensure Geometry column is set to Centroid for the proxy/sediment spatial join
+    eelgrass_proj = eelgrass_proj.set_geometry('centroid')
+    
+    sediment_type_mapping = {
+        'mud/sand': 'mud_sand',
+        'gravelly mud/san': 'mud_sand',
+        'vegetation': 'organic',
+        'gravelly sand': 'sand',
+        'no survey': 'unknown'
+    }
+    
+    # Vectorized Spatial Join to find nearest Sediment polygon
+    joined_gdf = gpd.sjoin_nearest(eelgrass_proj, sediment_proj, how='left', distance_col='dist')
+    if 'SEDIMENT' in joined_gdf.columns:
+        joined_gdf['sediment_type'] = joined_gdf['SEDIMENT'].map(sediment_type_mapping).fillna('unknown')
+    else:
+        joined_gdf['sediment_type'] = 'unknown'
+    
+    # Drop duplicates generated by equidistant sediment polygons
+    joined_gdf = joined_gdf[~joined_gdf.index.duplicated(keep='first')]
+
     crd_data = []
     
-    # Process eelgrass data
-    for i, feature in enumerate(eelgrass_geojson['features']):
-        props = feature['properties']
-        geom = shape(feature['geometry'])
-        
-        # Centroid
-        centroid = geom.centroid
-        latitude = centroid.y
-        longitude = centroid.x
-        
-        # Area (convert m^2 to hectares)
-        area_m2 = props.get('Shape.STArea()', 0)
-        area_ha = area_m2 / 10000
-        
-        # ZOS classification
-        zos_classification = props.get('ZOS', 'unknown')
-        
-        # Site name (approximated from location if available, otherwise generic)
-        # For simplicity, let's use a generic site name for now or derive from bounding box
-        # The task specifies "use harbour/waterway name" - for now, we'll generalize
-        site_name = f"CRD Eelgrass Site {i+1}" 
-        
-        # Spatial join for sediment type (find nearest sediment polygon)
-        sediment_type = 'unknown'
-        sediment_type_mapping = {
-            'mud/sand': 'mud_sand',
-            'gravelly mud/san': 'mud_sand',
-            'vegetation': 'organic',
-            'gravelly sand': 'sand'
-        }
+    # Filter the measured proxy dataset once
+    measured_eelgrass = None
+    if existing_df is not None and not existing_df.empty:
+        measured_eelgrass = existing_df[
+            (existing_df['habitat_type'] == 'eelgrass') & 
+            (existing_df['carbon_density_gCm2'].notna())
+        ]
 
-        if sediment_geojson and geom:
-            eelgrass_point = centroid # Use centroid for nearest point calculation
-            
-            min_distance = float('inf')
-            nearest_sediment_polygon = None
-            
-            for sed_feature in sediment_geojson['features']:
-                sed_geom = shape(sed_feature['geometry'])
-                if sed_geom.is_valid:
-                    # Calculate distance from eelgrass centroid to sediment polygon
-                    distance = eelgrass_point.distance(sed_geom)
-                    if distance < min_distance:
-                        min_distance = distance
-                        nearest_sediment_polygon = sed_feature
-            
-            if nearest_sediment_polygon:
-                sediment_type = nearest_sediment_polygon['properties'].get('SEDIMENT', 'unknown')
-                if sediment_type == 'no survey': # Handle specific CRD sediment class
-                    sediment_type = 'unknown'
-                sediment_type = sediment_type_mapping.get(sediment_type, sediment_type) # Apply mapping
-
-        # Cross-reference Portage Inlet for carbon density proxy
+    for i, row in joined_gdf.iterrows():
+        lat = row['latitude']
+        lon = row['longitude']
+        
+        # Dynamically find nearest measured eelgrass site for carbon density proxy
         carbon_density = np.nan
-        if existing_df is not None:
-            portage_inlet_proxy = existing_df[existing_df['site_id'] == 'BC-EEL-019']['carbon_density_gCm2'].iloc[0] if not existing_df[existing_df['site_id'] == 'BC-EEL-019'].empty else np.nan
-            # Apply proxy if within a reasonable distance or context (simplified for now)
-            # For this task, we'll apply it to CRD sites in general if no direct measurement.
-            if np.isnan(carbon_density) and not np.isnan(portage_inlet_proxy):
-                # This is a simplification; a more robust approach would involve actual spatial proximity
-                carbon_density = portage_inlet_proxy # Use Portage Inlet as proxy if no other data
+        if measured_eelgrass is not None and not measured_eelgrass.empty:
+            distances = measured_eelgrass.apply(
+                lambda ms: haversine_distance(lat, lon, ms['latitude'], ms['longitude']), 
+                axis=1
+            )
+            nearest_idx = distances.idxmin()
+            carbon_density = measured_eelgrass.loc[nearest_idx, 'carbon_density_gCm2']
         
         crd_data.append({
             'site_id': f"CRD-EEL-{i+1:03d}",
-            'site_name': site_name,
-            'latitude': latitude,
-            'longitude': longitude,
+            'site_name': f"CRD Eelgrass Site {i+1}",
+            'latitude': lat,
+            'longitude': lon,
             'region': 'Salish Sea',
             'habitat_type': 'eelgrass',
-            'sediment_type': sediment_type,
-            'carbon_density_gCm2': carbon_density, # CARBON_GAP, will be filled by model
+            'sediment_type': row['sediment_type'],
+            'carbon_density_gCm2': carbon_density, # CARBON_GAP
             'sequestration_rate_gCm2yr': np.nan,
             'measurement_depth_cm': np.nan,
-            'survey_year': 2024, # Assuming recent survey
+            'survey_year': 2024,
             'data_source': 'CRD Harbours Atlas (ArcGIS MapServer Layer 25)',
             'access_type': 'open',
-            'notes': 'CRD_ATTRIBUTION: used with permission from Capital Regional District; CARBON_GAP'
+            'notes': 'CRD_ATTRIBUTION: used with permission from Capital Regional District; CARBON_GAP',
+            'area_ha': row['area_ha'] # Retain for engineer_features
         })
 
     return pd.DataFrame(crd_data)
@@ -245,8 +289,9 @@ def process_hakai_grain_size_data(file_path, df_unified):
     # Filter for British Columbia and Vegetated cover
     df_grain_size_bc_veg = df_grain_size[(df_grain_size['region'] == 'British Columbia') & (df_grain_size['cover'] == 'Vegetated')].copy()
 
-    # Calculate mean percent_fines and percent_oc by site within BC vegetated areas
-    # Use site for more granular merging
+    # We average the percent_fines and percent_oc by site. 
+    # Why? Grain size data is often collected from multiple cores within a single site. 
+    # We need a single representative mean per site to join against our unified site list.
     grain_size_site_means = df_grain_size_bc_veg.groupby(['site', 'region'])[['percent_fines', 'percent_oc']].mean().reset_index()
     
     # Calculate regional means for imputation fallback
@@ -326,9 +371,12 @@ def engineer_features(df):
     """
     Performs feature engineering on the loaded data.
     """
-    # One-hot encode categorical features
+    # One-hot encode categorical features for ML without destroying human-readable originals
     categorical_cols = ['region', 'habitat_type', 'sediment_type']
-    df = pd.get_dummies(df, columns=categorical_cols, prefix=categorical_cols, drop_first=True)
+    for col in categorical_cols:
+        if col in df.columns:
+            dummies = pd.get_dummies(df[col], prefix=col, drop_first=False)
+            df = pd.concat([df, dummies], axis=1)
 
     # Impute missing numerical features with median
     numerical_cols_to_impute = ['measurement_depth_cm', 'survey_year']
@@ -347,6 +395,8 @@ def engineer_features(df):
         df = df.drop(columns=['area_ha'])
 
     # Derived Feature 2: Anthropogenic Stress Index (Proximity to major ports)
+    # Why? Blue carbon ecosystems closer to major industrial ports often face higher 
+    # environmental degradation, which might negatively correlate with their carbon storage potential.
     # Major ports (approximate coordinates: lat, lon)
     ports = {
         'Victoria': (48.4284, -123.3698),
@@ -354,19 +404,7 @@ def engineer_features(df):
         'Prince Rupert': (54.3164, -130.3259)
     }
 
-    def haversine_distance(lat1, lon1, lat2, lon2):
-        R = 6371  # Radius of Earth in kilometers
-        lat1_rad = np.radians(lat1)
-        lon1_rad = np.radians(lon1)
-        lat2_rad = np.radians(lat2)
-        lon2_rad = np.radians(lon2)
 
-        dlon = lon2_rad - lon1_rad
-        dlat = lat2_rad - lat1_rad
-
-        a = np.sin(dlat / 2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon / 2)**2
-        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-        return R * c
 
     df['min_distance_to_port_km'] = df.apply(lambda row:
         min([haversine_distance(row['latitude'], row['longitude'], port_coords[0], port_coords[1])
@@ -392,15 +430,25 @@ def engineer_features(df):
     return df[features], df # Return features DataFrame and the full DataFrame with engineered features
 
 
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, VotingRegressor
 from sklearn.model_selection import LeaveOneOut, cross_val_predict
 from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.svm import SVR
+from sklearn.neighbors import KNeighborsRegressor
+try:
+    from xgboost import XGBRegressor
+except ImportError:
+    XGBRegressor = None
 
 def train_and_predict_model(features_df, df_engineered):
     """
-    Trains a regression model (Random Forest) and predicts carbon density for gap sites.
+    Trains a regression model (Voting Ensemble by default) and predicts carbon density for gap sites.
     """
 
+    # We train the model ONLY on locations where we have actual lab measurements (not 'is_carbon_gap').
+    # Then we use those trained relationships to predict the density for the gap sites.
     # Separate data into training and prediction sets
     train_df = df_engineered[~df_engineered['is_carbon_gap']].copy()
     predict_df = df_engineered[df_engineered['is_carbon_gap']].copy()
@@ -413,10 +461,18 @@ def train_and_predict_model(features_df, df_engineered):
         df_engineered['predicted_carbon_density_gCm2'] = np.nan
         return df_engineered
 
-    # Initialize and train the Random Forest Regressor
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    # Initialize and train the Ensemble
+    rf = make_pipeline(SimpleImputer(strategy='median'), RandomForestRegressor(n_estimators=100, random_state=42))
+    svr = make_pipeline(SimpleImputer(strategy='median'), StandardScaler(), SVR(kernel='rbf', C=1.0, epsilon=0.1))
+    
+    estimators = [('rf', rf), ('svr', svr)]
+    if XGBRegressor is not None:
+        xgb = make_pipeline(SimpleImputer(strategy='median'), XGBRegressor(n_estimators=100, random_state=42, objective='reg:squarederror'))
+        estimators.append(('xgb', xgb))
+        
+    model = VotingRegressor(estimators)
     model.fit(X_train, y_train)
-    print("\nRandom Forest Regressor trained successfully.")
+    print("\nVoting Ensemble Regressor trained successfully.")
 
     # Predict carbon density for gap sites
     if not predict_df.empty:
@@ -427,32 +483,55 @@ def train_and_predict_model(features_df, df_engineered):
 
     return df_engineered
 
-def evaluate_model(features_df, df_engineered):
+def evaluate_models(features_df, df_engineered):
     """
-    Evaluates the Random Forest model using Leave-One-Out Cross-Validation (LOOCV) and calculates RMSE and R².
+    Evaluates multiple models using Leave-One-Out Cross-Validation (LOOCV) and calculates RMSE and R².
     """
 
     measured_sites = df_engineered[~df_engineered['is_carbon_gap']].copy()
     if len(measured_sites) < 2: # Need at least 2 for LOOCV
         print("Warning: Not enough measured sites for meaningful LOOCV evaluation.")
-        return {'rmse': np.nan, 'r2': np.nan}
+        return {}
     
     # Features and target for measured sites
     X_measured = features_df.loc[measured_sites.index].astype(float)
     y_measured = measured_sites['carbon_density_gCm2'].astype(float)
 
-    # Initialize the Random Forest Regressor and LOOCV
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
     loo = LeaveOneOut()
 
-    # Perform LOOCV and get predictions
-    y_pred_loocv = cross_val_predict(model, X_measured, y_measured, cv=loo, n_jobs=-1) # Use all available cores
+    # Define the models suite
+    rf = make_pipeline(SimpleImputer(strategy='median'), RandomForestRegressor(n_estimators=100, random_state=42))
+    knn = make_pipeline(SimpleImputer(strategy='median'), StandardScaler(), KNeighborsRegressor(n_neighbors=5))
+    svr = make_pipeline(SimpleImputer(strategy='median'), StandardScaler(), SVR(kernel='rbf', C=1.0, epsilon=0.1))
+    
+    models = {
+        'Random Forest': rf,
+        'K-Nearest Neighbors': knn,
+        'Support Vector Regression': svr
+    }
 
-    # Calculate RMSE and R²
-    rmse = np.sqrt(mean_squared_error(y_measured, y_pred_loocv))
-    r2 = r2_score(y_measured, y_pred_loocv)
+    if XGBRegressor is not None:
+        xgb = make_pipeline(SimpleImputer(strategy='median'), XGBRegressor(n_estimators=100, random_state=42, objective='reg:squarederror'))
+        models['XGBoost'] = xgb
+        models['Voting Ensemble'] = VotingRegressor([('rf', rf), ('xgb', xgb), ('svr', svr)])
+    else:
+        models['Voting Ensemble'] = VotingRegressor([('rf', rf), ('svr', svr)])
 
-    return {'rmse': rmse, 'r2': r2}
+    results = {}
+    
+    print("\n--- Starting Model Evaluations (LOOCV) ---")
+    for name, model in models.items():
+        print(f"Evaluating {name}...")
+        try:
+            y_pred_loocv = cross_val_predict(model, X_measured, y_measured, cv=loo, n_jobs=-1)
+            rmse = np.sqrt(mean_squared_error(y_measured, y_pred_loocv))
+            r2 = r2_score(y_measured, y_pred_loocv)
+            results[name] = {'rmse': rmse, 'r2': r2}
+        except Exception as e:
+            print(f"Failed on {name}: {e}")
+            results[name] = {'rmse': np.nan, 'r2': np.nan}
+
+    return results
 
 if __name__ == "__main__":
     # Load and validate existing data
@@ -463,13 +542,8 @@ if __name__ == "__main__":
     EELGRASS_URL = "https://mapservices.crd.bc.ca/arcgis/rest/services/Harbours/MapServer/25/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&f=geojson"
     SEDIMENT_URL = "https://mapservices.crd.bc.ca/arcgis/rest/services/Harbours/MapServer/52/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&f=geojson"
     
-    print(f"Fetching eelgrass data from: {EELGRASS_URL}")
-    eelgrass_geojson = fetch_geojson_data(EELGRASS_URL)
-    print("Eelgrass data fetched.")
-
-    print(f"Fetching sediment data from: {SEDIMENT_URL}")
-    sediment_geojson = fetch_geojson_data(SEDIMENT_URL)
-    print("Sediment data fetched.")
+    eelgrass_geojson = fetch_geojson_data(EELGRASS_URL, local_cache_path="data/raw/crd_eelgrass.geojson")
+    sediment_geojson = fetch_geojson_data(SEDIMENT_URL, local_cache_path="data/raw/crd_sediment.geojson")
 
     # Process CRD data
     crd_df = process_crd_eelgrass_data(eelgrass_geojson, sediment_geojson, df)
@@ -511,11 +585,15 @@ if __name__ == "__main__":
     print("\nDataFrame with predictions (first 5 rows):\n" + str(df_final.head()))
     print("\nCarbon gap sites with predictions:\n" + str(df_final[df_final['is_carbon_gap']][['site_id', 'carbon_density_gCm2', 'predicted_carbon_density_gCm2']]))
 
-    evaluation_results = evaluate_model(features_df, df_final.copy())
-    print("\nModel Evaluation Results (LOOCV):\n" + str(evaluation_results))
+    evaluation_results = evaluate_models(features_df, df_final.copy())
+    
+    # Pretty print the model comparisons
+    print("\nModel Comparison Results (LOOCV):")
+    comparison_df = pd.DataFrame(evaluation_results).T
+    print(comparison_df.sort_values(by='r2', ascending=False))
 
-    # Calculate and display Feature Importances
-    model_for_importance = RandomForestRegressor(n_estimators=100, random_state=42)
+    # Calculate and display Feature Importances using Random Forest specifically
+    model_for_importance = make_pipeline(SimpleImputer(strategy='median'), RandomForestRegressor(n_estimators=100, random_state=42))
     # Retrain model on full training data to get feature importances
     train_df_for_importance = df_engineered[~df_engineered['is_carbon_gap']].copy()
     X_train_for_importance = features_df.loc[train_df_for_importance.index].astype(float)
@@ -523,18 +601,27 @@ if __name__ == "__main__":
     
     if not X_train_for_importance.empty:
         model_for_importance.fit(X_train_for_importance, y_train_for_importance)
+        # Extract the RF model from the pipeline to get feature importances
+        imputer_step = model_for_importance.named_steps['simpleimputer']
+        rf_step = model_for_importance.named_steps['randomforestregressor']
+        
+        # Get the actual features that survived the imputer (i.e. drops habitat_area_ha)
+        feature_names = imputer_step.get_feature_names_out(X_train_for_importance.columns)
+        
         feature_importances = pd.DataFrame({
-            'feature': X_train_for_importance.columns,
-            'importance': model_for_importance.feature_importances_
+            'feature': feature_names,
+            'importance': rf_step.feature_importances_
         }).sort_values(by='importance', ascending=False)
         print("\nFeature Importance Table:\n" + str(feature_importances))
     else:
         print("\nCannot calculate feature importances: No training data available.")
 
-    # Combine original and predicted carbon density for output
+    # Extract final dataset without Machine Learning backend matrices
     df_final['carbon_density_gCm2_final'] = df_final['carbon_density_gCm2'].fillna(df_final['predicted_carbon_density_gCm2'])
+    cols_to_drop = [c for c in df_final.columns if c.startswith('region_') or c.startswith('habitat_type_') or c.startswith('sediment_type_') or c == 'predicted_carbon_density_gCm2']
+    df_final.drop(columns=cols_to_drop, inplace=True, errors='ignore')
 
-    # Save the filled CSV
+    # Save the polished Kaggle CSV
     output_file = "unified_bc_blue_carbon_filled.csv"
     df_final.to_csv(output_file, index=False)
     print("\nFilled data saved to " + str(output_file))

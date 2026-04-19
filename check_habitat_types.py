@@ -5,7 +5,8 @@ from schema import schema
 try:
     df = pd.read_csv('unified_bc_blue_carbon.csv')
 
-    # Get allowed habitat_type values from schema.py
+    # Pull the single source of truth for allowed habitat types from the schema dictionary.
+    # Why? Centralizing these lists in schema.py prevents hard-coding errors across multiple files.
     allowed_habitat_types = schema['habitat_type']['values']
     print(f"Allowed habitat types: {allowed_habitat_types}")
 
