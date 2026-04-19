@@ -8,3 +8,4 @@ requests>=2.30.0
 matplotlib>=3.8.0
 seaborn>=0.13.0
 nbformat>=5.10.4
+erddapy>=1.2.0
