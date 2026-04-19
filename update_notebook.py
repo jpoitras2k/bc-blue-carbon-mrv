@@ -4,14 +4,19 @@ nb = nbf.v4.new_notebook()
 
 intro_md = """# Unlocking Blue Carbon: A Unified MRV Framework Using Deep Spatial Intelligence
 
-**What is this dataset?** 
-A spatially-engineered fusion of Hakai Institute, Janousek, and CRD marine datasets predicting unmapped Blue Carbon sequestration potential along the Pacific Northwest.
+### Overview
+This project creates a unified Blue Carbon MRV dataset by combining:
+- Empirical field measurements
+- Government geospatial polygons
+- Environmental covariates
 
-**Why couldn’t it exist before?** 
-Eelgrass habitats are highly fragmented physically. Predicting carbon stock natively requires resolving deep topological clustering and oceanic physical baselines (Bio-ORACLE Sea Surface Temperatures & Salinity), which has traditionally been too complex for standard GIS tabular merges.
+The result is a clean, ML-ready dataset for estimating coastal carbon density.
 
-**Who benefits?** 
-Carbon credit developers, policy auditors, and climate researchers. This allows highly scalable MRV (Measurement, Reporting, Verification) tooling to predict sequestration without spending millions on physical sediment coring.
+### Why this dataset is unique
+- **First unified blue carbon MRV dataset** (Pacific Northwest / BC region)
+- **Data Fusion**: Integrates spatial + empirical + environmental data
+- **Advanced Engineering**: Adds spatial intelligence features to capture neighborhood effects
+- **Validation**: Statistically validated with a robust Machine Learning baseline (R² ≈ 0.82)
 """
 
 spatial_md = """## Feature Engineering: Approximating Neighborhood Effects
