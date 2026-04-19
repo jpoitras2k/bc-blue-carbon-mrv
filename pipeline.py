@@ -830,21 +830,16 @@ def train_and_predict_model(features_df, df_engineered):
     train_df = df_engineered[~df_engineered["is_carbon_gap"]].copy()
     predict_df = df_engineered[df_engineered["is_carbon_gap"]].copy()
 
-    X_train = features_df.loc[train_df.index].astype(float)
-    y_train = train_df["carbon_density_gCm2"].astype(float)
+    X_train = features_df.loc[train_df.index].astype(float).values
+    y_train = train_df["carbon_density_gCm2"].astype(float).values
 
     if X_train.empty:
         print("Warning: No data available for training the model.")
         df_engineered["predicted_carbon_density_gCm2"] = np.nan
         return df_engineered
 
-    # Initialize and train the Ensemble (Pure tree boosting ensemble)
-    rf = make_pipeline(
-        SimpleImputer(strategy="median"),
-        RandomForestRegressor(n_estimators=100, random_state=42),
-    )
-
-    estimators = [("rf", rf)]
+    # Initialize and train the Ensemble (Pure tree boosting ensemble: XGBoost, LightGBM, CatBoost)
+    estimators = []
     if XGBRegressor is not None:
         xgb = make_pipeline(
             SimpleImputer(strategy="median"),
@@ -872,7 +867,7 @@ def train_and_predict_model(features_df, df_engineered):
 
     # Predict carbon density for gap sites
     if not predict_df.empty:
-        X_predict = features_df.loc[predict_df.index].astype(float)
+        X_predict = features_df.loc[predict_df.index].astype(float).values
         df_engineered.loc[
             df_engineered["is_carbon_gap"], "predicted_carbon_density_gCm2"
         ] = model.predict(X_predict)
@@ -893,20 +888,14 @@ def evaluate_models(features_df, df_engineered):
         return {}
 
     # Features and target for measured sites
-    X_measured = features_df.loc[measured_sites.index].astype(float)
-    y_measured = measured_sites["carbon_density_gCm2"].astype(float)
+    X_measured = features_df.loc[measured_sites.index].astype(float).values
+    y_measured = measured_sites["carbon_density_gCm2"].astype(float).values
 
     loo = LeaveOneOut()
 
     # Define the models suite
-    rf = make_pipeline(
-        SimpleImputer(strategy="median"),
-        RandomForestRegressor(n_estimators=100, random_state=42),
-    )
-
-    models = {"Random Forest": rf}
-
-    estimators = [("rf", rf)]
+    models = {}
+    estimators = []
     if XGBRegressor is not None:
         xgb = make_pipeline(
             SimpleImputer(strategy="median"),

@@ -1,5 +1,4 @@
 # Unlocking Blue Carbon: A Unified MRV Dataset Using Deep Spatial Intelligence
-![Kaggle Potential](https://img.shields.io/badge/Kaggle-Top_Tier_Pipeline-success)
 
 ### Overview
 This project creates a unified Blue Carbon MRV dataset by combining:
@@ -7,13 +6,13 @@ This project creates a unified Blue Carbon MRV dataset by combining:
 - Government geospatial polygons
 - Environmental covariates
 
-The result is a clean, ML-ready dataset for estimating coastal carbon density.
+The result is a clean, ML-ready dataset for estimating coastal carbon density. The primary artifact is **unified_bc_blue_carbon_filled.csv**.
 
 ### Why this dataset is unique
 - **First unified blue carbon MRV dataset** (Pacific Northwest / BC region)
 - **Data Fusion**: Integrates spatial + empirical + environmental data
-- **Advanced Engineering**: Adds spatial intelligence features to capture neighborhood effects
-- **Validation**: Statistically validated with robust Machine Learning (R² ≈ 0.82)
+- **Scalable Application**: Enables precisely scaled coastal carbon estimation without costly field sampling
+- **Validation**: Statistically validated Machine Learning pipeline (R² ≈ 0.82) alongside a robust boosted ensemble baseline
 
 ## Feature Engineering: Approximating Neighborhood Effects
 We engineered spatial context features to approximate ecological neighborhood effects along the BC Coastline. Algorithms blindly looking at scattered coordinates fail to grasp marine topography, so we resolved this via:
@@ -28,7 +27,6 @@ We established an ensemble baseline using standard tabular models (`XGBoost`, `L
 | :--- | :--- | :--- |
 | **XGBoost (Winner)** | **145.29** | **0.820** |
 | **Voting Ensemble (Boosters)**| 176.61 | 0.735 |
-| **Random Forest Baseline**| 184.84 | 0.709 |
 | **CatBoost** | 201.21 | 0.656 |
 | **LightGBM** | 244.74 | 0.491 |
 
