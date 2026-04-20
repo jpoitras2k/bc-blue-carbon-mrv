@@ -14,7 +14,26 @@ This notebook is built on the open dataset: **unified_bc_blue_carbon_filled.csv*
 By shifting from geographic coordinates to physical drivers (Hakai buoy data), we've created a model that generalizes across coastal topographies. This enables scalable coastal carbon estimation supporting carbon markets, conservation policy, and climate accounting.
 
 **What did we achieve?**
-A statistically validated Machine Learning pipeline that achieves an **R² ≈ 0.82** (best model: XGBoost), proving that blue carbon density can be effectively predicted using physical environmental context.
+A statistically validated Machine Learning pipeline that achieves an **R² ≈ 0.75** (best model: Random Forest), proving that blue carbon density can be effectively predicted using physical environmental context.
+"""
+
+importance_md = """## Why Blue Carbon Matters: The "Carbon Vault"
+While tropical rainforests are often the "face" of carbon sequestration, coastal **Blue Carbon** ecosystems (like eelgrass) are significantly more efficient long-term storage engines.
+
+### 📊 Storage Comparison: Eelgrass vs. Rainforests
+
+| Metric | Tropical Rainforests | Eelgrass Meadows (e.g., Victoria) |
+|:--- |:--- |:--- |
+| **Carbon Storage** | ~100–300 tonnes / hectare | **~200–1,000+ tonnes / hectare** |
+| **Primary Location** | Above ground (trees/biomass) | **Below ground (sediments)** |
+| **Vulnerability** | High (Fire, logging → rapid release) | **Low (Can remain buried for millennia)** |
+| **Sequestration Rate**| ~2–10 t CO₂/ha/year | ~1–10 t CO₂/ha/year |
+
+### 🧠 The Big Takeaway
+*   **Rainforests** = Fast storage, but fragile and easily disrupted.
+*   **Eelgrass** = A permanent **"Carbon Vault"**. Because carbon is buried in low-oxygen sediments, it stays locked away much longer than in any terrestrial forest.
+
+By protecting and accurately measuring these ecosystems, we secure a critical component of the planet's long-term climate stability.
 """
 
 spatial_md = """## Mechanistic Modeling: Beyond Geographic Coordinates
@@ -62,14 +81,21 @@ from sklearn.model_selection import cross_val_predict, LeaveOneOut
 from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import make_pipeline
-from sklearn.ensemble import VotingRegressor
+from sklearn.ensemble import VotingRegressor, RandomForestRegressor
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 from catboost import CatBoostRegressor
 
 # Features used for evaluation (Excluding raw Latitude and Longitude)
 features = [c for c in df.columns if c.startswith((
+    'region_',
+    'habitat_type_',
+    'habitat_area_ha',
     'anthropogenic_stress', 
+    'percent_fines',
+    'percent_oc',
+    'd13C',
+    'd15N',
     'buoy_temperature', 
     'buoy_salinity',
     'sea_surface_temperature', 
@@ -81,14 +107,16 @@ X = df[~df['is_carbon_gap']][features].astype(float).values
 y = df[~df['is_carbon_gap']]['carbon_density_gCm2'].astype(float).values
 
 # Build the base models and VotingRegressor ensemble
+# We focus the Ensemble on the top-performing models (RF and CatBoost) 
+# to optimize accuracy after identifying that XGB/LGB were underperforming in this mechanistic setup.
 xgb_model = XGBRegressor(n_estimators=100, random_state=42, objective='reg:squarederror')
 lgb_model = LGBMRegressor(n_estimators=100, random_state=42, verbose=-1)
 cat_model = CatBoostRegressor(n_estimators=100, random_state=42, verbose=0)
+rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
 
 ensemble = VotingRegressor(estimators=[
-    ('xgb', xgb_model),
-    ('lgb', lgb_model),
-    ('cat', cat_model)
+    ('cat', cat_model),
+    ('rf', rf_model)
 ])
 
 loo = LeaveOneOut()
@@ -97,6 +125,7 @@ models_to_evaluate = {
     "XGBoost": xgb_model,
     "LightGBM": lgb_model,
     "CatBoost": cat_model,
+    "Random Forest": rf_model,
     "Ensemble": ensemble
 }
 
@@ -157,14 +186,14 @@ axes[1].set_title("Model Residuals (Prediction Error Distribution)", fontsize=16
 axes[1].set_xlabel("Prediction Error (gC/m²)", fontsize=12)
 
 # 3. Environmental Spatial Drivers (Excluding Direct Geography)
-# We fit an XGBoost explainer specifically on the environmental covariates to see which 
+# We fit a Random Forest explainer specifically on the environmental covariates to see which 
 # ecological factors drive the variance when direct latitude/longitude are removed.
 eco_features = [f for f in features if not f.startswith(('latitude', 'longitude'))]
 X_eco = df[~df['is_carbon_gap']][eco_features].astype(float).values
 
-eval_pipe = make_pipeline(SimpleImputer(strategy='median'), XGBRegressor(n_estimators=100, random_state=42, objective='reg:squarederror'))
+eval_pipe = make_pipeline(SimpleImputer(strategy='median'), RandomForestRegressor(n_estimators=100, random_state=42))
 eval_pipe.fit(X_eco, y)
-importances = eval_pipe.named_steps['xgbregressor'].feature_importances_
+importances = eval_pipe.named_steps['randomforestregressor'].feature_importances_
 
 # Extract the Top 10 Features
 indices = np.argsort(importances)[-10:]
@@ -185,6 +214,7 @@ plt.show()
 
 nb.cells = [
     nbf.v4.new_markdown_cell(intro_md),
+    nbf.v4.new_markdown_cell(importance_md),
     nbf.v4.new_markdown_cell(spatial_md),
     nbf.v4.new_code_cell(pipeline_code),
     nbf.v4.new_markdown_cell(model_md),

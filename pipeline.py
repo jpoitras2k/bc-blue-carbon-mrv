@@ -1004,22 +1004,6 @@ def evaluate_models(features_df, df_engineered):
     # Define the models suite
     models = {}
     estimators = []
-    if XGBRegressor is not None:
-        xgb = make_pipeline(
-            SimpleImputer(strategy="median"),
-            XGBRegressor(
-                n_estimators=100, random_state=42, objective="reg:squarederror"
-            ),
-        )
-        models["XGBoost"] = xgb
-        estimators.append(("xgb", xgb))
-    if LGBMRegressor is not None:
-        lgb = make_pipeline(
-            SimpleImputer(strategy="median"),
-            LGBMRegressor(n_estimators=100, random_state=42, verbose=-1),
-        )
-        models["LightGBM"] = lgb
-        estimators.append(("lgb", lgb))
     if CatBoostRegressor is not None:
         cat = make_pipeline(
             SimpleImputer(strategy="median"),
@@ -1028,7 +1012,14 @@ def evaluate_models(features_df, df_engineered):
         models["CatBoost"] = cat
         estimators.append(("cat", cat))
 
-    models["Voting Ensemble (Boosters)"] = VotingRegressor(estimators)
+    rf = make_pipeline(
+        SimpleImputer(strategy="median"),
+        RandomForestRegressor(n_estimators=100, random_state=42),
+    )
+    models["Random Forest"] = rf
+    estimators.append(("rf", rf))
+
+    models["Voting Ensemble (Cat+RF)"] = VotingRegressor(estimators)
 
     results = {}
 
