@@ -58,14 +58,18 @@ British Columbia's eelgrass meadows represent one of the largest inventoried blu
 
 **Target variable:** `carbon_density_gCm2`
 
-**Input features:**
-- `region` (categorical)
+**Input features (Mechanistic Drivers):**
+- `region` (categorical - for regional grouping)
 - `sediment_type` (categorical)
 - `habitat_type` (categorical)
-- `latitude` / `longitude` (continuous)
+- `buoy_temperature_c` (continuous - 12mo physical mean)
+- `buoy_salinity_pss` (continuous - 12mo physical mean)
+- `anthropogenic_stress_index` (continuous - port proximity)
 - `measurement_depth_cm` (continuous)
 
-**Recommended approach:**
+**Recommended approach (Mechanistic shift):**
+
+1. **Feature Engineering over Feature Space** — Focus on transforming `latitude`/`longitude` into physical environmental drivers (temperature, salinity, depth, stress) rather than using coordinates directly. This prevents geographic overfitting and improves scientific generalizability.
 
 1. **Gradient Boosted Trees (XGBoost / LightGBM)** — robust to mixed data types and effective for small datasets when augmented with regional proxies.
 

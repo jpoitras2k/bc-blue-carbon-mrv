@@ -26,6 +26,23 @@
 
 ---
 
+## Machine Learning & Mechanistic Features
+
+To prevent geographic overfitting, the pipeline performs **mechanistic feature engineering**. Latitude and Longitude are treated as metadata to retrieve environmental context, but are **excluded** from the final model features.
+
+### Engineered Physical Drivers
+
+| Feature | Source | Description |
+|---------|--------|-------------|
+| `buoy_temperature_c` | Hakai Institute Buoys | 12-month mean seawater temperature (°C) from nearest station |
+| `buoy_salinity_pss` | Hakai Institute Buoys | 12-month mean seawater salinity (PSS) from nearest station |
+| `sea_surface_temperature_c` | Bio-Oracle (fallback) | 2000-2019 baseline SST (fallback if buoy data is missing) |
+| `sea_surface_salinity_pss` | Bio-Oracle (fallback) | 2000-2019 baseline Salinity (fallback if buoy data is missing) |
+| `anthropogenic_stress_index` | Proximity Analysis | Inverse distance to major industrial ports (Vancouver, Victoria, Prince Rupert) |
+| `neighbor_density_15km` | Spatial Analysis | Count of other eelgrass sites within a 15km radius (proxy for regional habitat connectivity) |
+
+---
+
 ## Example Rows
 
 ```csv

@@ -14,11 +14,11 @@ The result is a clean, ML-ready dataset for estimating coastal carbon density. T
 - **Scalable Application**: Enables precisely scaled coastal carbon estimation without costly field sampling
 - **Validation**: Statistically validated Machine Learning pipeline (R² ≈ 0.82) alongside a robust boosted ensemble baseline
 
-## Feature Engineering: Approximating Neighborhood Effects
-We engineered spatial context features to approximate ecological neighborhood effects along the BC Coastline. Algorithms blindly looking at scattered coordinates fail to grasp marine topography, so we resolved this via:
-- **Haversine Geo-Density**: Extracted a 15km neighborhood density matrix counting eelgrass topology. This became the **2nd most powerful predictor (16.9% impact)**.
-- **Regional Topography**: Categorically carved the fjords into distinct regional proxies, allowing tree algorithms to parse geography efficiently.
-*(These engineered spatial metrics alone out-predicted Longitude, Salinity, and Sea Surface Temperature).*
+## Mechanistic Modeling: Beyond Geographic Coordinates
+In this phase, we transitioned from basic geographic modeling to a **mechanistic environmental driver** approach. Algorithms that rely purely on coordinates often fail to generalize across different marine topographies; we resolved this by:
+- **Removing Geographic Bias**: Latitude and Longitude are now treated as metadata used to retrieve context, but are **completely excluded** as direct features from the ML models.
+- **Telemetered Buoy Integration**: We integrated the **Hakai Institute ERDDAP** server to pull 12-month mean seawater temperature and salinity from real-time stations (Bamfield, Quadra Island, Kwakshua Channel).
+- **Physical Drivers**: The model now prioritizes **Salinity, Temperature, and Spatial Connectivity** (`neighbor_density_15km`). This ensures the model learns the physical drivers of carbon sequestration rather than just site-specific locations.
 
 ## Ensemble Baseline & Evaluation
 We established an ensemble baseline using standard tabular models (`XGBoost`, `LightGBM`, `CatBoost`) and an explicit `VotingRegressor` to predict unmapped carbon regions using rigorous LOOCV cross-validation. XGBoost served as a strong baseline, efficiently interpreting the spatial components.

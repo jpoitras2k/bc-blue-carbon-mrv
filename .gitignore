@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+catboost_info/
+
+# Data Caches
+data/ocean_cache.json
+
+# Local Environment
+.venv/
+.env
+.ipynb_checkpoints/
+
+# System Files
+.DS_Store
+Thumbs.db

@@ -215,6 +215,92 @@ def save_ocean_cache(cache):
         json.dump(cache, f)
 
 
+# Mapping of regions to nearest Hakai telemetered buoys/stations
+# Used for fetching mechanistic physical drivers (SST, Salinity)
+BUOY_MAPPING = {
+    "Salish Sea": {
+        "dataset_id": "HakaiQuadraLimpet5min",
+        "temp_var": "WaterTemp_Avg",
+        "sal_var": "WaterSalinity_Avg",
+    },
+    "West Coast VI": {
+        "dataset_id": "HakaiBamfieldBoL5min",
+        "temp_var": "TSG_T_Avg",
+        "sal_var": "TSG_S_Avg",
+    },
+    "Central Coast": {
+        "dataset_id": "HakaiKCBuoy1hour",
+        "temp_var": "WaterTemp_Avg",
+        "sal_var": "WaterSalinity_Avg",
+    },
+    "NE Pacific": {
+        "dataset_id": "HakaiBamfieldBoL5min",
+        "temp_var": "TSG_T_Avg",
+        "sal_var": "TSG_S_Avg",
+    },
+}
+
+
+def fetch_hakai_buoy_data(region, cache):
+    """
+    Fetches Temperature and Salinity from Hakai ERDDAP for a given region.
+    Returns 12-month averages for mechanistic modeling.
+    """
+    if region not in BUOY_MAPPING:
+        return np.nan, np.nan
+
+    mapping = BUOY_MAPPING[region]
+    ds_id = mapping["dataset_id"]
+    temp_var = mapping["temp_var"]
+    sal_var = mapping["sal_var"]
+
+    key = f"hakai_{ds_id}_12mo"
+    if key in cache:
+        return cache[key].get("temp", np.nan), cache[key].get("sal", np.nan)
+
+    from datetime import datetime, timedelta
+
+    try:
+        from erddapy import ERDDAP
+
+        e = ERDDAP(server="https://catalogue.hakai.org/erddap", protocol="tabledap")
+        e.dataset_id = ds_id
+
+        # Calculate 12 months ago
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=365)
+
+        e.constraints = {
+            "time>=": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "time<=": end_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        # Variable names in the download might differ slightly from internal metadata
+        e.variables = [temp_var, sal_var]
+
+        df_e = e.to_pandas()
+        if not df_e.empty:
+            # Drop any potential 'time' column if it was included
+            cols = [c for c in df_e.columns if "time" not in c.lower()]
+            # Find the columns that match our requested variables (case insensitive or partial match)
+            t_col = [c for c in df_e.columns if temp_var in c][0]
+            s_col = [c for c in df_e.columns if sal_var in c][0]
+
+            avg_temp = df_e[t_col].mean()
+            avg_sal = df_e[s_col].mean()
+            results = {"temp": float(avg_temp), "sal": float(avg_sal)}
+            print(f"Fetched Hakai buoy data for {region} ({ds_id}): T={avg_temp:.2f}, S={avg_sal:.2f}")
+        else:
+            results = {"temp": np.nan, "sal": np.nan}
+
+        cache[key] = results
+        save_ocean_cache(cache)
+        return results["temp"], results["sal"]
+    except Exception as err:
+        print(f"Warning: Could not fetch Hakai buoy data for {region} ({ds_id}): {err}")
+        cache[key] = {"temp": np.nan, "sal": np.nan}
+        return np.nan, np.nan
+
+
 def fetch_bio_oracle_ocean_data(lat, lon, cache):
     """
     Fetches SST and Salinity from Bio-ORACLE ERDDAP.
@@ -702,15 +788,34 @@ def engineer_features(df):
 
     sst_vals = []
     sss_vals = []
+    buoy_sst_vals = []
+    buoy_sss_vals = []
+
     for _, row in df.iterrows():
+        # 1. Fetch Bio-ORACLE baselines (Fallback)
         sst, sss = fetch_bio_oracle_ocean_data(
             row["latitude"], row["longitude"], ocean_cache
         )
         sst_vals.append(sst)
         sss_vals.append(sss)
 
+        # 2. Fetch Hakai Buoy data (High-fidelity mechanistic drivers)
+        b_sst, b_sss = fetch_hakai_buoy_data(row["region"], ocean_cache)
+        buoy_sst_vals.append(b_sst)
+        buoy_sss_vals.append(b_sss)
+
     df["sea_surface_temperature_c"] = sst_vals
     df["sea_surface_salinity_pss"] = sss_vals
+    df["buoy_temperature_c"] = buoy_sst_vals
+    df["buoy_salinity_pss"] = buoy_sss_vals
+
+    # Mechanistic Fallback: Use Bio-ORACLE if Buoy data is missing
+    df["buoy_temperature_c"] = df["buoy_temperature_c"].fillna(
+        df["sea_surface_temperature_c"]
+    )
+    df["buoy_salinity_pss"] = df["buoy_salinity_pss"].fillna(
+        df["sea_surface_salinity_pss"]
+    )
 
     # Derived Feature 4: Neighbor Density (15km radius)
     from sklearn.neighbors import BallTree
@@ -765,13 +870,14 @@ def engineer_features(df):
             df[col] = df[col].fillna(df[col].median())
 
     # Select features for the model. Exclude target and other non-feature columns.
+    # Select features for the model.
+    # CRITICAL: We exclude raw 'latitude' and 'longitude' to prevent geographic overfitting.
+    # We use mechanistic physical drivers (buoy data, SST, salinity) and distance-to-port instead.
     features = [
         col
         for col in df.columns
         if col.startswith(
             (
-                "latitude",
-                "longitude",
                 "region_",
                 "habitat_type_",
                 "habitat_area_ha",
@@ -782,11 +888,13 @@ def engineer_features(df):
                 "d15N",
                 "sea_surface_temperature",
                 "sea_surface_salinity",
+                "buoy_temperature",
+                "buoy_salinity",
                 "neighbor_density_15km",
                 "spatial_cluster_",
             )
         )
-        and col != "spatial_cluster_id"
+        and col not in ["latitude", "longitude", "spatial_cluster_id"]
     ]
 
     return (
@@ -833,7 +941,7 @@ def train_and_predict_model(features_df, df_engineered):
     X_train = features_df.loc[train_df.index].astype(float).values
     y_train = train_df["carbon_density_gCm2"].astype(float).values
 
-    if X_train.empty:
+    if len(X_train) == 0:
         print("Warning: No data available for training the model.")
         df_engineered["predicted_carbon_density_gCm2"] = np.nan
         return df_engineered
